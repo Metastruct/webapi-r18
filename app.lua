@@ -11,6 +11,42 @@ local db = require 'lsapidb'
 local app_helpers = require("lapis.application")
 local capture_errors_json, yield_error = app_helpers.capture_errors_json, app_helpers.yield_error
 local capture_errors, assert_error = app_helpers.capture_errors, app_helpers.assert_error
+local root = "/home/srcds/fastdl/"
+app:get("/lsapi/i/:id", capture_errors_json(function(self)
+	utils.cachecontrol()
+	
+	
+	local id = self.params.id
+	id = id:match("^(%d+)%.jpg$")
+	assert_error(tonumber(id),"invalid id")
+	
+	local loadingscreen, err = db.loadingscreens:find(id)
+	if not loadingscreen and err then yield_error(err) end
+	if not loadingscreen then yield_error("No such id") end
+	
+	local url = loadingscreen.url
+	if not url:find"^http" then url="http://"..url end
+	
+	local io = require("io")
+	local http = require("lapis.nginx.http")
+	local ltn12 = require("ltn12")
+	
+	local img_in =  (root.."lsapi/images/%d.jpg"):format(tonumber(id))
+	local img_out = (root.."lsapi/cache/%d.jpg"):format(tonumber(id))
+	
+	local fd = io.open(img_in,'wb')
+	local ret = table.tostring{http.request{ 
+		url = url,
+		sink = ltn12.sink.file(fd)
+	}}
+	assert_error(ret,"download from origin failed")
+	
+	local magick = require("magick") 
+	magick.thumb(img_in, "480x270", img_out)
+	
+	ngx.exec(ngx.var.request_uri)
+	assert(false)
+end))
 
 	
 app:get("/lsapi/thumb/:id", capture_errors_json(function(self)
@@ -38,8 +74,14 @@ app:get("/lsapi/thumb/:id", capture_errors_json(function(self)
 end))
 
 app:get("/lsapi", capture_errors_json(function(self)
-	utils.cachecontrol(10)
+	utils.cachecontrol(20)
 	
+	if next(self.params) then
+		local url = "/lsapi"
+		ngx.redirect(url, ngx.HTTP_MOVED_TEMPORARILY)
+		return
+	end
+
 	local t = assert_error(db.all())
 
 	return {
@@ -53,25 +95,33 @@ end))
 local accountid
 
 
-
---app:get("/lsapi/secure", capture_errors(function(self) 
---	local steamid,admin,ingame = utils.account_need(true)
---	return ("steamid: "..tostring(steamid)..' admin: '..tostring(admin))
---end))
---
-
 app:get("/lsapi/auth", capture_errors(function(self) 
 	utils.cachecontrol()
 	
-	local steamid,admin,ingame = utils.account_need()
+	local steamid,admin,ingame = utils.account_need(true)
+	
 	return {
 		json = {
 			success = true,
 			steamid = steamid,
 			admin = admin,
-			ingame = ingame and true or false
+			ingame = ingame and true or false,
+			csrf_token = csrf.generate_token(self, {
+				expires = os.time() + 60*60*4
+			})
 		}
 	}
+end))
+
+
+app:get("/lsapi/login", capture_errors(function(self) 
+	utils.cachecontrol()
+	
+	utils.account_need()
+	
+	local url = "https://loadingscreen.metastruct.net#authed"
+	ngx.redirect(url, ngx.HTTP_MOVED_TEMPORARILY)
+	error"no"
 end))
 
 app:post("/lsapi", capture_errors_json(function(self)
@@ -105,6 +155,14 @@ end))
 local function set_approved(approve,self)
 	utils.cachecontrol()
 	
+	csrf.assert_token(self, function(data)
+		if os.time() > (data.expires or 0) then
+		return nil, "token is expired"
+		end
+
+		return true
+	end)
+
 	local accountid = utils.account_need_admin(true)
 	
 	local loadingscreen = assert_error(db.loadingscreens:find(self.params.id))
@@ -124,6 +182,14 @@ app:post("/lsapi/deny/:id",    capture_errors_json(function(...) return set_appr
 app:post("/lsapi/vote/:id/:dir", capture_errors_json(function(self)
 	utils.cachecontrol()
 	
+	csrf.assert_token(self, function(data)
+		if os.time() > (data.expires or 0) then
+		return nil, "token is expired"
+		end
+
+		return true
+	end)
+
 	local accountid = utils.account_need(true)
 	
 	local id = assert_error(tonumber(self.params.id), "invalid id")

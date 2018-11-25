@@ -78,15 +78,6 @@ function _M.cachecontrol(n)
 	ngx.header.Cache_Control = n and ("max-age="..n) or "no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0";
 end
 
-function _M.thumb(url)
-	
-	ltn12.sink.file(io.open("copy.png"))
-
-
-	--local magick = require("magick") 
-	--magick.thumb("input.png", "100x100", "output.png")
-end
-
 function _M.account(need,need_admin,noredir)
 	
 	local meta_auth = require'metaauth'

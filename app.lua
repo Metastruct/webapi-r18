@@ -71,12 +71,14 @@ end))
 app:get("/lsapi/auth", capture_errors(function(self) 
 	utils.cachecontrol()
 	
-	local steamid,admin,ingame = utils.account_need(true)
-	
+	local accountid,admin,ingame = utils.account_need(true)
+	local sid64 = utils.aid_to_sid64(accountid)
+	assert(utils.sid64_to_accountid(sid64)==accountid)
 	return {
 		json = {
 			success = true,
-			steamid = steamid,
+			steamid = sid64,
+			accountid = accountid,
 			admin = admin,
 			ingame = ingame and true or false,
 			csrf_token = csrf.generate_token(self, {

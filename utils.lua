@@ -1,3 +1,5 @@
+local config = require("lapis.config").get()
+
 local _M={}
 
 do -- debug
@@ -74,8 +76,26 @@ function _M.forbidden(r,code)
 	}
 end
 
+local bn = require'bc'
+function _M.sid64_to_accountid(sid64)
+	sid64 = bn.number(sid64) 
+	local aid = sid64 - (sid64/2^32)*(2^32) 
+	return tonumber(tostring(aid))
+end
+local sidto64= bn.number"76561197960265728"
+function _M.aid_to_sid64(accountid)
+	accountid = bn.number(accountid)
+	local sid64 = accountid + sidto64
+	return tostring(sid64)
+end
+
 function _M.cachecontrol(n)
 	ngx.header.Cache_Control = n and ("max-age="..n) or "no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0";
+end
+
+local function _sidfix(sid64,...)
+	local aid = _M.sid64_to_accountid(sid64)
+	return aid,...
 end
 
 function _M.account(need,need_admin,noredir)
@@ -95,13 +115,13 @@ function _M.account(need,need_admin,noredir)
 				auth:deny("Admin privileges required")
 				error"?"
 			end
-			return steamid,admin,c,d,e
+			return _sidfix(steamid),admin,c,d,e
 		end
 		
-		return auth:need_user(need_admin)
+		return _sidfix(auth:need_user(need_admin))
 		
 	else
-		return auth:get_user()
+		return _sidfix(auth:get_user())
 	end
 end
 function _M.account_need(...)
@@ -110,4 +130,5 @@ end
 function _M.account_need_admin(...)
 	return _M.account(true,true,...)
 end
+
 return _M

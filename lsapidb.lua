@@ -19,7 +19,7 @@ local _M={
 function _M.all()
 	return loadingscreens:select({ 
 		fields = [[extract(epoch from created)::numeric::integer as created, 
-					id, confsort, accountid, up, approver, url, approval, down]] 
+					id, confsort, accountid, comment as name, up, approver, url, approval, down]] 
 	})
 end
 

@@ -8,6 +8,7 @@ local utils = require'utils'
 
 local db = require 'lsapidb'
 
+local csrf = require("lapis.csrf")
 local app_helpers = require("lapis.application")
 local capture_errors_json, yield_error = app_helpers.capture_errors_json, app_helpers.yield_error
 local capture_errors, assert_error = app_helpers.capture_errors, app_helpers.assert_error
@@ -48,31 +49,6 @@ app:get("/lsapi/i/:id", capture_errors_json(function(self)
 	assert(false)
 end))
 
-	
-app:get("/lsapi/thumb/:id", capture_errors_json(function(self)
-	utils.cachecontrol()
-	
-	local id = self.params.id
-	local loadingscreen, err = db.loadingscreens:find(id)
-	if not loadingscreen and err then yield_error(err) end
-	if not loadingscreen then yield_error("No such id") end
-	local url = loadingscreen.url
-	if not url:find"^http" then url="http://"..url end
-	
-	local io = require("io")
-	local http = require("lapis.nginx.http")
-	local ltn12 = require("ltn12")
-
-	local fd = io.open("/tmp/wot.png",'wb')
-	local ret = table.tostring{http.request{ 
-		url = "https://i.imgur.com/rKaqpdO.png", 
-		sink = ltn12.sink.file(fd)
-	}}
-	
-	return url
-	
-end))
-
 app:get("/lsapi", capture_errors_json(function(self)
 	utils.cachecontrol(20)
 	
@@ -91,9 +67,6 @@ app:get("/lsapi", capture_errors_json(function(self)
 		}
 	}
 end))
-
-local accountid
-
 
 app:get("/lsapi/auth", capture_errors(function(self) 
 	utils.cachecontrol()

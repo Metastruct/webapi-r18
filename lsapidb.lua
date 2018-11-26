@@ -22,6 +22,11 @@ function _M.all()
 					id, confsort, accountid, comment as name, up, approver, url, approval, down]] 
 	})
 end
+function _M.last_created(accountid)
+	local res = loadingscreens:select("where accountid = ? order by created desc limit 1", accountid, { fields = 'extract(epoch from created)::numeric::integer as created' })
+	--ngx.say(table.tostring{accountid,res})
+	return res and res[1] and res[1].created
+end
 
 function _M.loadingscreen_new(accountid,url)
 	local loadingscreen = _M.loadingscreens:find{ url = url }

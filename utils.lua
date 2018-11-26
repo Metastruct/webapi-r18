@@ -1,4 +1,10 @@
 local config = require("lapis.config").get()
+local util = require("lapis.util")
+local app_helpers = require("lapis.application")
+local capture_errors_json, yield_error = app_helpers.capture_errors_json, app_helpers.yield_error
+local capture_errors, assert_error = app_helpers.capture_errors, app_helpers.assert_error
+
+local csrf = require("lapis.csrf")
 
 local _M={}
 
@@ -93,9 +99,51 @@ function _M.cachecontrol(n)
 	ngx.header.Cache_Control = n and ("max-age="..n) or "no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0";
 end
 
+function _M.cors(options)
+	-- obsolete
+end
+
 local function _sidfix(sid64,...)
 	local aid = _M.sid64_to_accountid(sid64)
 	return aid,...
+end
+
+function _M.do_csrf(self)
+	csrf.assert_token(self, function(data)
+		if os.time() > (data.expires or 0) then
+		return nil, "token is expired"
+		end
+
+		return true
+	end)
+end
+
+function _M.RateLimit(accountid)
+
+end
+
+function _M.validate_imageurl(url)
+	if url:match'^https?://i.imgur.com/[^%.%/]+.png$' then return true end
+	if url:match'^https?://i.imgur.com/[^%.%/]+.jpg$' then return true end
+	if url:match'^https?://steamuserimages%-a%.akamaihd.net/ugc/.*$' then return true end
+	if url:match'^https?://images.akamai%.steamusercontent%.com/ugc/.*$' then return true end
+	return false
+end
+
+function _M.Uncached_GetPlayerSummaries(sid64)
+	local url = ("http://api.steampowered.com/ISteamUser/GetPlayerSummaries/v0002/?key=%s&steamids=%s&format=json"):format(config.steamapi,sid64)
+	
+	local http = require("lapis.nginx.http")
+	local ltn12 = require("ltn12")
+	
+	local respbody={}
+	local ret = table.tostring{http.request{ 
+		url = url,
+		sink = ltn12.sink.table(respbody)
+	}}
+	assert_error(ret,"download from origin failed")
+	local t = assert_error(util.from_json(table.concat(respbody)))
+	return t and t.response and t.response.players and t.response.players[1]
 end
 
 function _M.account(need,need_admin,noredir)
@@ -108,7 +156,9 @@ function _M.account(need,need_admin,noredir)
 			local steamid,admin,c,d,e = auth:get_user()
 			assert(not ngx.headers_sent)
 			if not steamid then
-				auth:deny("Authentication required",401)
+				--ngx.say(table.tostring{ngx.req.get_headers()})
+				--ngx.exit(404)
+				auth:deny("Authentication required!",401)
 				error"?"
 			end
 			if need_admin and not admin then

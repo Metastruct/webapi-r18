@@ -109,6 +109,9 @@ local function _sidfix(sid64,...)
 end
 
 function _M.do_csrf(self)
+
+	if ngx.req.get_headers()['X-API-Key'] then return end
+
 	csrf.assert_token(self, function(data)
 		if os.time() > (data.expires or 0) then
 		return nil, "token is expired"
@@ -146,14 +149,14 @@ function _M.Uncached_GetPlayerSummaries(sid64)
 	return t and t.response and t.response.players and t.response.players[1]
 end
 
-function _M.account(need,need_admin,noredir)
+function _M.account(need,need_admin,noredir,apikey_ok)
 	
 	local meta_auth = require'metaauth'
 	local auth = meta_auth.new()
 	
 	if need or need_admin then
 		if noredir then
-			local steamid,admin,c,d,e = auth:get_user()
+			local steamid,admin,c,d,e = auth:get_user(apikey_ok)
 			assert(not ngx.headers_sent)
 			if not steamid then
 				--ngx.say(table.tostring{ngx.req.get_headers()})
@@ -168,10 +171,10 @@ function _M.account(need,need_admin,noredir)
 			return _sidfix(steamid),admin,c,d,e
 		end
 		
-		return _sidfix(auth:need_user(need_admin))
+		return _sidfix(auth:need_user(need_admin,false,apikey_ok))
 		
 	else
-		return _sidfix(auth:get_user())
+		return _sidfix(auth:get_user(apikey_ok))
 	end
 end
 function _M.account_need(...)

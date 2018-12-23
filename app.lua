@@ -102,7 +102,7 @@ for _,meth in next,{"get","post"} do
 				success = true,
 				steamid = sid64,
 				accountid = accountid,
-				admin = admin,
+				admin = admin and true or false,
 				ingame = ingame and true or false,
 				csrf_token = csrf.generate_token(self, {
 					expires = os.time() + 60*60*4
@@ -129,6 +129,24 @@ app:get("/lsapi/login", capture_errors(function(self)
 	ngx.redirect(url, ngx.HTTP_MOVED_TEMPORARILY)
 	error"no"
 end))
+
+app:delete("/lsapi", capture_errors_json(function(self)
+	utils.cachecontrol()
+	--utils.do_csrf(self)
+
+	local accountid = utils.account_need_admin(true)
+
+	local loadingscreen = assert_error(db.loadingscreens:find(self.params.id))	
+	return {
+		status = 200,
+		json = {
+			success = true,
+			res = loadingscreen:delete()
+		}
+	}
+	
+end))
+
 
 app:post("/lsapi", capture_errors_json(function(self)
 	utils.cachecontrol()
@@ -233,7 +251,7 @@ end))
 
 local function set_approved(approve,self)
 	utils.cachecontrol()
-	utils.do_csrf(self)
+	--utils.do_csrf(self)
 	
 	local accountid = utils.account_need_admin(true)
 	
@@ -250,9 +268,9 @@ end
 app:post("/lsapi/approve/:id", capture_errors_json(function(...) return set_approved(true,...) end))
 app:post("/lsapi/deny/:id",    capture_errors_json(function(...) return set_approved(false,...) end))
 
-
 app:get("/lsapi/myvotes", capture_errors_json(function(self)
 	utils.cachecontrol()
+	local json = require'cjson'
 
 	local accountid = utils.account_need(true)
 	
@@ -267,7 +285,12 @@ app:get("/lsapi/myvotes", capture_errors_json(function(self)
 			down[#down+1] = v.id		
 		end
 	end
-	
+	if not up[1] then
+		up = json.empty_array
+	end
+	if not down[1] then
+		down = json.empty_array
+	end
 	return {
 		json = {
 			success = true,
@@ -280,9 +303,10 @@ end))
 
 app:post("/lsapi/vote/:id/:dir", capture_errors_json(function(self)
 	utils.cachecontrol()
+	
 	utils.do_csrf(self)
 	
-	local accountid = utils.account_need(true)
+	local accountid = utils.account_need(true,true)
 	
 	local id = assert_error(tonumber(self.params.id), "invalid id")
 	

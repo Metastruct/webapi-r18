@@ -1,0 +1,149 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <!-- Required meta tags -->
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
+
+    <!-- Bootstrap CSS -->
+    <link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootstrap/4.3.1/css/bootstrap.min.css" integrity="sha384-ggOyR0iXCbMQv3Xipma34MD+dH/1fQ784/j6cY/iJTQUOhcWr7x9JvoRxT2MZw1T" crossorigin="anonymous">
+
+
+	  <script type="text/javascript" src="https://unpkg.com/vis-network@latest/dist/vis-network.min.js"></script>
+	  <link href="https://unpkg.com/vis-network@latest/dist/vis-network.min.css" rel="stylesheet" type="text/css" />
+  <style type="text/css">
+    #mynetwork {
+      width: 1000px;
+      height: 800px;
+      border: 1px solid lightgray;
+    }
+	
+	#tooltip
+	{
+	  width: 200px;
+	  height: 200px;
+	  position: absolute;
+	  display:none;
+	  border: 1px solid black;
+	}
+
+	
+  </style>
+    <title>Age Verifier</title>
+  </head>
+  <body>
+  
+    
+  <header>
+  
+  <div class="navbar navbar-dark bg-dark shadow-sm">
+    <div class="container d-flex justify-content-between">
+      <a href="metastruct.net" class="navbar-brand d-flex align-items-center">
+		
+        <strong>Meta Construct | Age verifier</strong>
+      </a>
+      
+    </div>
+  </div>
+</header>
+  
+  
+<iframe id="tooltip" src="https://steamcommunity.com/profiles/notfound"></iframe>
+<div id="mynetwork"></div>
+
+  
+  
+    <!-- Optional JavaScript -->
+    <!-- jQuery first, then Popper.js, then Bootstrap JS -->
+    <script src="https://code.jquery.com/jquery-3.3.1.slim.min.js" integrity="sha384-q8i/X+965DzO0rT7abK41JStQIAqVgRVzpbzo5smXKp4YfRvH+8abtTE1Pi6jizo" crossorigin="anonymous"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/popper.js/1.14.7/umd/popper.min.js" integrity="sha384-UO2eT0CpHqdSJQ6hJty5KVphtPhzWj9WO1clHTMGa3JDZwrnQq4sF86dIHNDz0W1" crossorigin="anonymous"></script>
+    <script src="https://stackpath.bootstrapcdn.com/bootstrap/4.3.1/js/bootstrap.min.js" integrity="sha384-JjSmVgyd0p3pXB1rRibZUAYoIIy6OrQ6VrjIEaFf/nJGzIxFDsf4x0xIM+B07jRM" crossorigin="anonymous"></script>
+	
+	
+	<script type="text/javascript">
+	// create an array with nodes
+	var nodes = new vis.DataSet({{{nodes}}});
+
+	// create an array with edges
+	var edges = new vis.DataSet({{{links}}});
+
+	// create a network
+	var container = document.getElementById('mynetwork');
+	var data = {
+	nodes: nodes,
+	edges: edges
+	};
+	var options = {
+			interaction:{hover:true},
+			
+			
+			
+        nodes: {
+          borderWidth:2,
+          size:10,
+	      color: {
+            border: '#406897',
+            background: '#6AAFFF'
+          },
+          font:{color:'#eeeeee'},
+          shapeProperties: {
+            useBorderWithImage:true
+          }
+        },
+        edges: {
+          color: '#11aa11'
+        }
+			
+	};
+	var network = new vis.Network(container, data, options);
+
+
+	network.on("click", function (params) {
+		var node_id = params["nodes"][0];
+		if (!node_id) return;
+		var node = nodes.get(node_id);
+		if (!node) return;
+		document.location = "https://steamcommunity.com/profiles/"+node["sid64"];
+	});
+	
+	var poptimer;
+	var showing;
+    //network.on("hoverNode", function (params) {
+	//
+	//	if (poptimer) return;
+	//	
+	//	var node_id = params["node"];
+	//	if (!node_id) return;
+	//	var node = nodes.get(node_id);
+	//	if (!node) return;
+	//	var url = "https://steamcommunity.com/profiles/"+node["sid64"];
+	//	console.log("show",node_id,node,url);
+	//	
+	//	poptimer = setTimeout(function() {
+	//		showing = true;
+	//		$('#tooltip').prop('src', url);
+	//		$('#tooltip').show();
+	//	},200);
+    //});
+	//
+    //network.on("blurNode", function () {
+    //    if (poptimer) {
+	//		clearTimeout(poptimer);
+	//		poptimer = false;
+	//	};
+	//	if (!showing) return;
+	//	showing =false;
+	//	$('#tooltip').hide();
+	//	console.log("hide");
+    //});
+	
+	//jQuery(document).mousemove(function(e) {
+	//	
+	//   var mouseX = e.pageX; 
+	//   var mouseY = e.pageY;
+    //  jQuery('#tooltip').css({'top':mouseY - 100,'left':mouseX - 100});   
+	//});
+</script>
+	
+  </body>
+</html>

@@ -1,12 +1,13 @@
 local lapis = require "lapis"
 local app = lapis.Application()
 
-package.path = 'scripts/lsapi/?.lua;' .. 'scripts/?.lua;' .. package.path
+package.path = 'scripts/r18/?.lua;' .. 'scripts/?.lua;' .. package.path
 
-require'config'
-local utils = require'utils'
+require'r18.config'
+local utils = require'r18.utils'
+local templates = require'r18.templates'
 
-local db = require 'lsapidb'
+local db = require 'r18.db'
 
 local csrf = require("lapis.csrf")
 local app_helpers = require("lapis.application")
@@ -15,361 +16,316 @@ local capture_errors, assert_error = app_helpers.capture_errors, app_helpers.ass
 local respond_to = require("lapis.application").respond_to
 local root = "/home/srcds/fastdl/"
 
-app:get("/lsapi/i/:id", capture_errors_json(function(self)
+
+local function isverified(usr)
+	return usr and usr.verifier1 and usr.verifier2
+end
+
+local hmac_sha1
+local function mkcode(accountid)
+	local hmac = require "resty.hmac"
+	
+    hmac_sha1 = hmac_sha1 or hmac:new("ijojo435i3dasd=vsdbsdb12", hmac.ALGOS.SHA1)
+    if not hmac_sha1 then
+        return
+    end
+	
+	local data = tostring(assert(tonumber(accountid)))
+    local ok = hmac_sha1:update(data)
+    if not ok then
+        return
+    end
+
+    local mac = hmac_sha1:final()  -- binary mac
+
+    local str = require "resty.string"
+
+    if not hmac_sha1:reset() then
+        return
+    end
+	
+	return ("%08x%s"):format(accountid,str.to_hex(mac:sub(1,8)))
+	
+end
+
+app:get("/r18", capture_errors_json(function(self)
+	local accountid,admin,ingame = utils.account_need()
 	utils.cachecontrol()
-
-	
-	local id = self.params.id
-	id = id:match("^(%d+)%.jpg$")
-	assert_error(tonumber(id),"invalid id")
-	
-	local img_in =  (root.."lsapi/images/%d.jpg"):format(tonumber(id))
-	local img_out = (root.."lsapi/cache/%d.jpg"):format(tonumber(id))
-	local fd = io.open(img_in,'rb')
-	if fd then
-		fd:close()
-		ngx.redirect("/not-found-1770320_640.jpg", ngx.HTTP_MOVED_TEMPORARILY)
-	end
-	
-	local loadingscreen, err = db.loadingscreens:find(id)
-	if not loadingscreen and err then yield_error(err) end
-	if not loadingscreen then yield_error("No such id") end
-	
-	local url = loadingscreen.url
-	if not url:find"^http" then url="http://"..url end
-	
-	local io = require("io")
-	local http = require("lapis.nginx.http")
-	local ltn12 = require("ltn12")
-	
-	local fd = io.open(img_in,'wb')
-	local ret = http.request{ 
-		url = url,
-		sink = ltn12.sink.file(fd)
-	}
-	assert_error(ret,"download from origin failed")
-	
-	local magick = require("magick") 
-	magick.thumb(img_in, "480x270", img_out)
-	
-	ngx.exec(ngx.var.request_uri)
-	assert(false)
-end))
-
-app:get("/lsapi/myaccount", capture_errors_json(function(self)
-	utils.cachecontrol()
-
-	local accountid,admin,ingame = utils.account_need(true)
 	local sid64 = utils.aid_to_sid64(accountid)
 	
-	return {
-		json = {
-			success = true,
-			result = utils.GetPlayerSummaries(sid64)
-		}
-	}
-end))
-app:get("/lsapi", capture_errors_json(function(self)
-	utils.cachecontrol(20)
-
+	local usr = db.get(accountid)
+	local verified = isverified(usr)
+	local code
+	if not verified then
+		code = mkcode(accountid)
+	end
+	local v1,v2 = usr and usr.verifier1,usr and usr.verifier2
 	
-	if next(self.params) then
-		local url = "/lsapi"
-		ngx.redirect(url, ngx.HTTP_MOVED_TEMPORARILY)
+	
+	local has_verified = db.getby(accountid)
+	if has_verified then
+		for k,v in next,has_verified do
+			v.sid64 = utils.aid_to_sid64(v.accountid)
+		end
+	end
+	
+	local myverifications = has_verified and {verifications=has_verified}
+	return templates.index{
+		accountid=accountid,
+		verified=verified,
+		unverified=not verified,
+		code=code,
+		v1=v1 and utils.aid_to_sid64(v1),
+		v2=v2 and utils.aid_to_sid64(v2),
+		myverifications = myverifications,
+		
+	}
+	
+end))
+
+
+
+app:get("/r18/verify/:code", capture_errors(function(self)
+	local accountid,admin,ingame = utils.account_need()
+	utils.cachecontrol()
+	
+	local usr = db.get(accountid)
+	local verified = isverified(usr)
+	
+	if not verified and not admin then 
+		return {
+			layout=false,
+			status = 403,
+			'This account is not adult verified so you may not verify other accounts. Verify yourself first <a href="/r18">here</a>!',
+		}
+	end
+	
+	local code = self.params.code
+	
+	--local hex = require'hex'
+	--local data,err = hex.decode(code)
+	local target_accountid = tonumber(code:sub(1,2*4),16)
+	if not target_accountid then 
+		return {
+			json = {
+				success = false,
+				error = "Invalid code"
+			}
+		}
+	end
+	
+	local codeverify = mkcode(target_accountid)
+	if codeverify ~= code then
+		return {
+			json = {
+				success = false,
+				error = "Code did not validate (Invalid or old)"
+			}
+		}
+	end
+	
+	return templates.verify{accountid=target_accountid,sid64=utils.aid_to_sid64(target_accountid),csrf=csrf.generate_token(self),code=code}
+
+end))
+
+app:post("/r18/verify/:code", capture_errors(function(self)
+	local accountid,admin,ingame = utils.account_need()
+	utils.cachecontrol()
+	csrf.assert_token(self)
+	
+	local code = self.params.code
+	
+	local target_accountid = tonumber(code:sub(1,2*4),16)
+	if not target_accountid then 
+		return "Invalid code"
+	end
+	
+	if accountid == target_accountid then
+		return {
+			layout=false,
+			status = 403,
+			'You can not verify yourself! You should give this link to a person who is <b>already verified</b> and can confirm that you are adult.',
+		}
+
+	end
+	
+	local codeverify = mkcode(target_accountid)
+	if codeverify ~= code then
+		return {
+			json = {
+				success = false,
+				error = "Code did not validate (Invalid or old)"
+			},
+			status = 400
+		}
+	end
+	
+	local usr = db.get(target_accountid)
+	
+	if not usr then
+		db.set(target_accountid,accountid)
+	elseif isverified(usr) then
+		return "This user is already fully verified"
+	else
+		
+		if usr.verifier1 == accountid or usr.verifier2 == accountid then
+			return "You have already verified this person"
+		end
+		if usr.verifier1 then
+			db.set(target_accountid,nil,accountid)
+		elseif usr.verifier2 then
+			db.set(target_accountid,accountid,nil)
+		else
+			db.set(target_accountid,accountid)
+		end
+	end
+	
+	return {
+		layout=false,
+		status = 403,
+		'Verification confirmed! <br/> View your verifications <a href="/r18">here</a>.',
+	}
+
+end))
+
+app:post("/r18/noverify/:accountid", capture_errors(function(self)
+	utils.cachecontrol()
+	csrf.assert_token(self)
+		
+	return "Thank you!"
+
+end))
+
+local function to_aid(accountid)
+	
+	if not accountid or not tonumber(accountid) then
 		return
 	end
-
-	local t = assert_error(db.all())
-
-	return {
-		json = {
-			success = true,
-			result = t
-		}
-	}
-end))
-
-for _,meth in next,{"get","post"} do
-	app[meth](app,"/lsapi/auth", capture_errors(function(self) 
-		utils.cachecontrol()
-
-		
-		local accountid,admin,ingame = utils.account_need(true)
-		local sid64 = utils.aid_to_sid64(accountid)
-		assert(utils.sid64_to_accountid(sid64)==accountid)
-		return {
-			json = {
-				success = true,
-				steamid = sid64,
-				accountid = accountid,
-				admin = admin and true or false,
-				ingame = ingame and true or false,
-				csrf_token = csrf.generate_token(self, {
-					expires = os.time() + 60*60*4
-				})
-			}
-		}
-	end))
+	local tmp = tonumber(accountid)>2^32+1 and utils.sid64_to_accountid(accountid)
+	if tmp and tmp>0 then
+		accountid = tmp
+	end
+	return accountid
 end
 
-app:get("/lsapi/testb64", capture_errors(function(self) 
-	utils.cachecontrol()
-	local bad = [[L9MoOXC\\\/Gb1osk1bb0eF3an4oyQ=]]
-	ngx.say("org: "..bad)
-	ngx.say("ngx: "..(ngx.encode_base64(ngx.decode_base64(bad) or "") or "<none>"))
-	ngx.say("b64: "..require'mime'.b64(require'mime'.unb64(bad)))
+local to_json = require("lapis.util").to_json
+app:get("/r18/v/:accountid", capture_errors_json(function(self)
+	utils.cachecontrol(2)
 	
-end))
-
-app:get("/lsapi/login", capture_errors(function(self) 
-	utils.cachecontrol()
-	utils.account_need()
 	
-	local url = "https://loadingscreen.metastruct.net#authed"
-	ngx.redirect(url, ngx.HTTP_MOVED_TEMPORARILY)
-	error"no"
-end))
+	local accountid = to_aid(self.params.accountid)
+	
+	if not accountid then
+		return {
+			json = {
+				success = false,
+				error = "bad steamid"
+			},
+			status = 400
+		}
 
-app:delete("/lsapi", capture_errors_json(function(self)
-	utils.cachecontrol()
-	--utils.do_csrf(self)
+	end
 
-	local accountid = utils.account_need_admin(true)
-
-	local loadingscreen = assert_error(db.loadingscreens:find(self.params.id))	
+	local usr = db.get(accountid)
+	local verified = isverified(usr) and true or false
+	
 	return {
-		status = 200,
 		json = {
 			success = true,
-			res = loadingscreen:delete()
+			verified = verified
 		}
 	}
 	
 end))
 
 
-app:post("/lsapi", capture_errors_json(function(self)
-	utils.cachecontrol()
-	--utils.do_csrf(self)
+app:get("/r18/n/:accountid", capture_errors(function(self)
+	utils.cachecontrol(2)
+	
+	local accountid_root = to_aid(self.params.accountid)
+	
+	if not accountid_root then
+		return {
+			json = {
+				success = false,
+				error = "bad steamid"
+			},
+			status = 400
+		}
 
-	local accountid,admin = utils.account_need(true)
+	end
+
+	local usr = db.get(accountid_root)
+	if not usr then return "no such account" end
+	
+	local nodes={
+	}
+	
+	local links={
+	
 		
-	local last = db.last_created(accountid)
-	if last and os.time()-last<60 then
-		return {
-			status = 429, -- rate limited
-			json = {
-				success = false,
-				ratelimit = true,
+	}
+	
+	local visited = {}
+	local all_users = {}
+	local verifications = {}
+	local id=0
+	local function new(accountid)
+		id = id + 1
+		local t={}
+		t.id=id
+		t.accountid = accountid
+		t.sid64=utils.aid_to_sid64(accountid)
+		t.shape = 'image'
+		t.image = "https://steamsignature.com/status/default/"..t.sid64..".png"
+		t.label = tostring(accountid)
+		nodes[#nodes+1]=t
+		return t
+	end
+	
+	local function verify(from,to)
+		local t = verifications[from]
+		if not t then t={} verifications[from]=t end
+		if t[to] then return end
+		t[to]=true
+		local tonode = all_users[to]
+		tonode.verifications = (tonode.verifications or 0) + 1
+		if tonode.verifications >=2 then
+			tonode.color = {
+				border = 'rgb(50,255,10)'
 			}
-		}
-	end
-	
-	local url = self.params.url
-	if not utils.validate_imageurl(url) then
-		return {
-			status = 400, -- conflict
-			json = {
-				success = false,
-				reason = "Not whitelisted URL or bad format"
-			}
-		}		
-	end
-	
-	-- not accurate?
-	local fsize=0
-	local t=setmetatable({},{__newindex=function(t,k,v)
-		fsize = fsize + #v
-		if fsize>1 then
-			yield_error("download too big: "..tostring(fsize))
-			error"download too big"
 		end
-	end})
-	
-	local io = require("io")
-	local http = require("lapis.nginx.http")
-	local ltn12 = require("ltn12")
-	
-	local ret,code,hdr,statusline = http.request{ 
-		url = url,
-		sink = ltn12.sink.table(t)
-	}
-	assert_error(ret,"Unable to download image: "..tostring(code))
-	assert_error(code==200,"Unable to download image: Server returned "..tostring(code)..' '..tostring(statusline))
-	
-	local loadingscreen,already = assert_error(db.loadingscreen_new(accountid,url))
-	if loadingscreen and already then
-		return {
-			status = 409, -- conflict
-			json = {
-				success = false,
-				already = true,
-				id 		= loadingscreen.id
-			}
-		}		
+		links[#links+1]={from=assert(all_users[from].id),to=assert(all_users[to].id),arrows='to'}
 	end
 	
-	local sid64 = utils.aid_to_sid64(accountid)
-	local personaname
-	if loadingscreen and not already then
-		local prof = utils.Uncached_GetPlayerSummaries(sid64)
-		if prof and prof.personaname then
-			loadingscreen:update{comment=prof and prof.personaname}
-			personaname = prof.personaname
+	local visit
+	visit = function(accountid,n)
+		n=n-1
+		if n<0 then return end
+		if visited[accountid] then return end
+		visited[accountid]=true
+		all_users[accountid]=new(accountid)
+		
+		local has_verified = db.getby(accountid)
+		if not has_verified then return end
+
+		for _,t in next,has_verified do
+			local accountid_verified = t.accountid
+			visit(accountid_verified,n)
+			verify(accountid,accountid_verified)
 		end
+		
+	end
+	visit(accountid_root,5)
+	
+	for _=1,5 do
+	
 	end
 	
-	return {
-		status = 201, -- created
-		json = {
-			success = true,
-			id = loadingscreen.id,
-			name = personaname,
-			profile = prof
-		}
-	}
+	return templates.network{nodes=to_json(nodes),links=to_json(links)}
+
+	
 end))
-
-
-app:get("/lsapi/last_created", capture_errors_json(function(self)
-	utils.cachecontrol()
-
-	
-	local accountid,admin = utils.account_need(true)
-	
-	local url = self.params.url
-
-	local last = db.last_created(accountid)
-	
-	return {
-		json = {
-			success = true,
-			created = last
-		}
-	}
-end))
-
-local function set_approved(approve,self)
-	utils.cachecontrol()
-	--utils.do_csrf(self)
-	
-	local accountid = utils.account_need_admin(true)
-	
-	local loadingscreen = assert_error(db.loadingscreens:find(self.params.id))
-	assert_error(loadingscreen:update{approval=approve,approver=accountid})
-	return {
-		status = 200,
-		json = {
-			success = true,
-		}
-	}
-end
-
-app:post("/lsapi/approve/:id", capture_errors_json(function(...) return set_approved(true,...) end))
-app:post("/lsapi/deny/:id",    capture_errors_json(function(...) return set_approved(false,...) end))
-
-app:get("/lsapi/myvotes", capture_errors_json(function(self)
-	utils.cachecontrol()
-	local json = require'cjson'
-
-	local accountid = utils.account_need(true)
-	
-	-- find existing votes
-	local vote, err = db.votes:select("WHERE accountid=?",accountid, { fields = "vote, id" })
-	local up,down = {},{}
-	if not vote and err then yield_error(err) end
-	for k,v in next,vote do
-		if v.vote then
-			up[#up+1] = v.id
-		else
-			down[#down+1] = v.id		
-		end
-	end
-	if not up[1] then
-		up = json.empty_array
-	end
-	if not down[1] then
-		down = json.empty_array
-	end
-	return {
-		json = {
-			success = true,
-			up = up,
-			down = down
-		}
-	}
-end))
-
-
-app:post("/lsapi/vote/:id/:dir", capture_errors_json(function(self)
-	utils.cachecontrol()
-	
-	utils.do_csrf(self)
-	
-	local accountid = utils.account_need(true,true)
-	
-	local id = assert_error(tonumber(self.params.id), "invalid id")
-	
-	-- :dir
-	local dir = self.params.dir
-	assert_error(dir == 'up' or dir == 'down' or dir == 'delete', "bad vote direction")
-	dir = dir == 'delete' and 'delete' or dir == 'up' and true or false
-	
-	-- does loadingscreen id exist
-	local loadingscreen, err = db.loadingscreens:find(id)
-	if not loadingscreen and err then yield_error(err) end
-	if not loadingscreen then yield_error("No such id") end
-
-	-- find existing votes
-	local vote, err = db.votes:find(accountid, id)
-	if not vote and err then yield_error(err) end
-	local old_dir 
-	
-	if vote then old_dir = vote.vote else old_dir = "NULL" end
-	
-	if dir == 'delete' then
-		if not vote then
-			return {
-				status = 304, -- not modified
-				json = {
-					success = true,
-					dir = "NULL",
-					dir_old = "NULL"
-				}
-			}			
-		end
-		assert_error(vote, "no vote to delete")
-		vote:delete()
-	else
-		if vote then
-			if vote.vote == dir then
-				return {
-					status = 304, -- not modified
-					json = {
-						success = true,
-						dir = dir
-					}
-				}
-			end
-			vote:update({ vote = dir })
-		else
-			db.votes:create{	accountid = accountid,
-								id = id,
-								vote = dir	}
-		end
-	end
-
-	db.loadingscreen_update_summary(id)
-
-	return {
-		json = {
-			success = true,
-			dir = dir,
-			dir_old = old_dir
-		}
-	}
-end))
-
 
 
 return app

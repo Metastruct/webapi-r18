@@ -48,7 +48,7 @@ local function errprint(ok,err)
 	return err
 end
 
-package.path = 'scripts/lsapi/?.lua;' .. package.path
+package.path = 'scripts/r18/?.lua;' .. package.path
 return errprint(xpcall(function()
 	require("lapis").serve("app")
 end,debug.traceback))

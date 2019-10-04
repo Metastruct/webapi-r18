@@ -83,6 +83,17 @@ app:get("/r18", capture_errors_json(function(self)
 	
 end))
 
+app:get("/r18/test", capture_errors(function(self)
+
+	local t = templates.message{
+		msg="test",		
+	}
+	t.status = 404
+	
+	return t
+	
+end))
+
 
 
 app:get("/r18/verify/:code", capture_errors(function(self)
@@ -283,12 +294,30 @@ app:get("/r18/n/:accountid", capture_errors(function(self)
 		return t
 	end
 	
+	local function new_dummy(parent)
+		id = id + 1
+		local t={}
+		t.id=id
+		t.label = "..."
+		t.text = "..."
+		t.accountid = parent
+		t.sid64=utils.aid_to_sid64(parent)
+		t.gonetwork = true
+		nodes[#nodes+1]=t
+		links[#links+1]={from=assert(all_users[parent].id),to=assert(t.id),arrows='to'}
+		
+		return t
+	end
+	
 	local function verify(from,to)
 		local t = verifications[from]
 		if not t then t={} verifications[from]=t end
 		if t[to] then return end
 		t[to]=true
 		local tonode = all_users[to]
+		if not tonode then
+			error(to)
+		end
 		tonode.verifications = (tonode.verifications or 0) + 1
 		if tonode.verifications >=2 then
 			tonode.color = {
@@ -300,8 +329,6 @@ app:get("/r18/n/:accountid", capture_errors(function(self)
 	
 	local visit
 	visit = function(accountid,n)
-		n=n-1
-		if n<0 then return end
 		if visited[accountid] then return end
 		visited[accountid]=true
 		all_users[accountid]=new(accountid)
@@ -309,14 +336,21 @@ app:get("/r18/n/:accountid", capture_errors(function(self)
 		local has_verified = db.getby(accountid)
 		if not has_verified then return end
 
+		if n<0 then 
+			if has_verified and #has_verified>0 then
+				new_dummy(accountid)
+			end
+			return 
+		end
+
 		for _,t in next,has_verified do
 			local accountid_verified = t.accountid
-			visit(accountid_verified,n)
+			visit(accountid_verified,n-1)
 			verify(accountid,accountid_verified)
 		end
 		
 	end
-	visit(accountid_root,5)
+	visit(accountid_root,2)
 	
 	for _=1,5 do
 	

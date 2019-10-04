@@ -1,13 +1,4 @@
-<!doctype html>
-<html lang="en">
-  <head>
-    <!-- Required meta tags -->
-    <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
-
-    <!-- Bootstrap CSS -->
-    <link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootstrap/4.3.1/css/bootstrap.min.css" integrity="sha384-ggOyR0iXCbMQv3Xipma34MD+dH/1fQ784/j6cY/iJTQUOhcWr7x9JvoRxT2MZw1T" crossorigin="anonymous">
-
+{{> header_generic_begin}}
 
 	  <script type="text/javascript" src="https://unpkg.com/vis-network@latest/dist/vis-network.min.js"></script>
 	  <link href="https://unpkg.com/vis-network@latest/dist/vis-network.min.css" rel="stylesheet" type="text/css" />
@@ -29,24 +20,7 @@
 
 	
   </style>
-    <title>Age Verifier</title>
-  </head>
-  <body>
-  
-    
-  <header>
-  
-  <div class="navbar navbar-dark bg-dark shadow-sm">
-    <div class="container d-flex justify-content-between">
-      <a href="metastruct.net" class="navbar-brand d-flex align-items-center">
-		
-        <strong>Meta Construct | Age verifier</strong>
-      </a>
-      
-    </div>
-  </div>
-</header>
-  
+{{> header_generic_end}}
   
 <iframe id="tooltip" src="https://steamcommunity.com/profiles/notfound"></iframe>
 <div id="mynetwork"></div>
@@ -103,7 +77,11 @@
 		if (!node_id) return;
 		var node = nodes.get(node_id);
 		if (!node) return;
-		document.location = "https://steamcommunity.com/profiles/"+node["sid64"];
+		if (node["gonetwork"]) {
+			document.location = "https://g2cf.metastruct.net/r18/n/"+node["sid64"];
+		} else {
+			document.location = "https://steamcommunity.com/profiles/"+node["sid64"];
+		}
 	});
 	
 	var poptimer;
@@ -145,5 +123,4 @@
 	//});
 </script>
 	
-  </body>
-</html>
+{{> footer_generic}}

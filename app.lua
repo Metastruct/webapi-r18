@@ -352,10 +352,6 @@ app:get("/r18/n/:accountid", capture_errors(function(self)
 	end
 	visit(accountid_root,2)
 	
-	for _=1,5 do
-	
-	end
-	
 	return templates.network{nodes=to_json(nodes),links=to_json(links)}
 
 	
